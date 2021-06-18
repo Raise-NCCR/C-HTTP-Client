@@ -11,62 +11,53 @@
 
 #define BUF_LEN 256
 
-int main(int argc, char *argv[])
+void http_request(char *URL, int *s, char *host, char *path, unsigned short *port)
 {
-    int s;
     struct hostent *servhost;
     struct sockaddr_in server;
     struct servent *service;
 
-    char send_buf[BUF_LEN];
-    char host[BUF_LEN] = "localhost";
-    char path[BUF_LEN] = "/";
-    unsigned short port = 80;
+    char host_path[BUF_LEN];
 
-    if (argc > 1)
+    if (strlen(URL) > BUF_LEN - 1)
     {
-        char host_path[BUF_LEN];
+        fprintf(stderr, "URL が長すぎます。\n");
+        exit(EXIT_FAILURE);
+    }
 
-        if (strlen(argv[1]) > BUF_LEN - 1)
+    if (strstr(URL, "http://") &&
+        sscanf(URL, "http://%s", host_path) &&
+        strcmp(URL, "http://"))
+    {
+        char *p;
+
+        p = strchr(host_path, '/');
+        if (p != NULL)
         {
-            fprintf(stderr, "URL が長すぎます。\n");
-            return 1;
-        }
-
-        if (strstr(argv[1], "http://") &&
-            sscanf(argv[1], "http://%s", host_path) &&
-            strcmp(argv[1], "http://"))
-        {
-            char *p;
-
-            p = strchr(host_path, '/');
-            if (p != NULL)
-            {
-                strcpy(path, p);
-                *p = '\0';
-                strcpy(host, host_path);
-            }
-            else
-            {
-                strcpy(host, host_path);
-            }
-
-            p = strchr(host, ':');
-            if (p != NULL)
-            {
-                port = atoi(p + 1);
-                if (port <= 0)
-                {
-                    port = 80;
-                }
-                *p = '\0';
-            }
+            strcpy(path, p);
+            *p = '\0';
+            strcpy(host, host_path);
         }
         else
         {
-            fprintf(stderr, "URL は http://host/path の形式で指定してください。\n");
-            return 1;
+            strcpy(host, host_path);
         }
+
+        p = strchr(host, ':');
+        if (p != NULL)
+        {
+            *port = atoi(p + 1);
+            if (*port <= 0)
+            {
+                *port = 80;
+            }
+            *p = '\0';
+        }
+    }
+    else
+    {
+        fprintf(stderr, "URL は http://host/path の形式で指定してください。\n");
+        exit(EXIT_FAILURE);
     }
 
     printf("http://%s%s を取得します。\n\n", host, path);
@@ -75,7 +66,7 @@ int main(int argc, char *argv[])
     if (servhost == NULL)
     {
         fprintf(stderr, "[%s] から IP アドレスへの変換に失敗しました。\n", host);
-        return 0;
+        exit(EXIT_FAILURE);
     }
 
     bzero(&server, sizeof(server));
@@ -84,9 +75,9 @@ int main(int argc, char *argv[])
 
     bcopy(servhost->h_addr, &server.sin_addr, servhost->h_length);
 
-    if (port != 0)
+    if (*port != 0)
     {
-        server.sin_port = htons(port);
+        server.sin_port = htons(*port);
     }
     else
     {
@@ -101,17 +92,29 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((s = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    if ((*s = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         fprintf(stderr, "ソケットの生成に失敗しました。\n");
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
-    if (connect(s, (struct sockaddr *)&server, sizeof(server)) == -1)
+    if (connect(*s, (struct sockaddr *)&server, sizeof(server)) == -1)
     {
         fprintf(stderr, "connect に失敗しました。\n");
-        return 1;
+        exit(EXIT_FAILURE);
     }
+}
+
+char *http_get(char *URL)
+{
+    int s;
+    char host[BUF_LEN] = "";
+    char path[BUF_LEN] = "/";
+    unsigned short port = 80;
+
+    char send_buf[BUF_LEN];
+
+    http_request(URL, &s, &(host[0]), &(path[0]), &port);
 
     sprintf(send_buf, "GET %s HTTP/1.0\r\n", path);
     write(s, send_buf, strlen(send_buf));
@@ -122,6 +125,7 @@ int main(int argc, char *argv[])
     sprintf(send_buf, "\r\n");
     write(s, send_buf, strlen(send_buf));
 
+    char *res = (char *)calloc(1, 100000);
     while (1)
     {
         char buf[BUF_LEN];
@@ -129,7 +133,7 @@ int main(int argc, char *argv[])
         read_size = read(s, buf, BUF_LEN);
         if (read_size > 0)
         {
-            write(1, buf, read_size);
+            strncat(res, buf, read_size);
         }
         else
         {
@@ -139,5 +143,5 @@ int main(int argc, char *argv[])
 
     close(s);
 
-    return 0;
+    return res;
 }
